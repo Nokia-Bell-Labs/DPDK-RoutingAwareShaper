@@ -1,0 +1,11 @@
+Build started at 2025-09-30T00:37:15.429047
+Main binary: /usr/bin/python3
+Build Options: -Dexamples=l2fwd,l3fwd,vhost '-Dprefix=~/dpdk22.11Install'
+Python system: Linux
+The Meson build system
+Version: 1.9.0
+Source dir: /home/ubuntu/DPDK/v22.11.4/dpdk-stable-22.11.4/DaaS/PoCPhase3/tm10
+Build dir: /home/ubuntu/DPDK/v22.11.4/dpdk-stable-22.11.4/DaaS/PoCPhase3/tm10/build
+Build type: native build
+
+ERROR: Invalid source tree: first statement must be a call to project()

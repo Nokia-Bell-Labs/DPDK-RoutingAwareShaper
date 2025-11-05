@@ -1,0 +1,22 @@
+#!/bin/bash
+#
+#              © 2025 Nokia
+#              Licensed under the BSD 3-Clause Clear License
+#              SPDX-License-Identifier: BSD-3-Clause-Clear
+#
+MESON=`which meson`
+NINJA=`which ninja`
+export PATH=$PATH:$MESON:$NINJA
+NAME=`cat /etc/os-release  | grep "^NAME="`
+
+if [[ $NAME == *Rocky* ]]; then
+    export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig 
+    git clone https://github.com/pktgen/Pktgen-DPDK.git
+    cd Pktgen-DPDK
+    git checkout pktgen-23.06.1
+    make
+else
+    git clone http://dpdk.org/git/apps/pktgen-dpdk
+    cd pktgen-dpdk
+    make
+fi
