@@ -293,7 +293,7 @@ Queue selection (packet classification) for the traffic flows is done by looking
 
 ## Support
 
-- Fatih Berkay Sarpkaya (fatih.sarpkaya@nokia.com)
+- Fatih Berkay Sarpkaya (fbs6417@nyu.edu)
 - Andrea Francini (andrea.francini@nokia-bell-labs.com)
 
 ## License
