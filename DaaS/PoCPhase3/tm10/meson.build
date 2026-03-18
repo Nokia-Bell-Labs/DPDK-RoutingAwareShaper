@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright(c) 2017 Intel Corporation
 #
-#              © 2020-2025 Nokia
+#              © 2020-2026 Nokia
 #              Licensed under the BSD 3-Clause Clear License
 #              SPDX-License-Identifier: BSD-3-Clause-Clear
 #
