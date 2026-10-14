@@ -161,6 +161,22 @@ StreamPktInit(uint8_t confId, uint8_t sid)
     //rte_pktmbuf_dump(stdout, mbuf, 1000);
   }
 
+  // Compute maxPktSize for each bundle: max pktsize across all queues in the bundle.
+  // Runs after the stream loop above so that streamCfg[].pktsize values are fully populated.
+  for (int bidx = 0; bidx < sc->queuesNum; bidx++)
+  {
+    BundleConf *bc = &sc->bundleConf[confId][bidx];
+    uint16_t bMaxPktSize = 0;
+    for (int qi = 0; qi < bc->numQueues; qi++)
+    {
+      uint16_t qid = bc->queues[qi];
+      if (sc->streamCfg[confId][qid].pktsize > bMaxPktSize)
+        bMaxPktSize = sc->streamCfg[confId][qid].pktsize;
+    }
+    bc->maxPktSize = bMaxPktSize;
+    printf("Bundle %d maxPktSize = %u\n", bidx, bc->maxPktSize);
+  }
+
   return 0;
 }
 

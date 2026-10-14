@@ -188,6 +188,7 @@ typedef struct BundleConf_s
   uint32_t schedRate;                  // Scheduling rate of queue
   uint16_t queues[QUEUES_PER_BUNDLE_MAX];  // Map of flow queues to bundle
   uint16_t pathId;		       // Path of the bundle
+  uint16_t maxPktSize;                 // Max pktsize across all queues in bundle; set by StreamPktInit()
 } BundleConf;
 
 typedef struct RunConf_s 
