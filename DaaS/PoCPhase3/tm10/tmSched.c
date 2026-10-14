@@ -66,7 +66,7 @@ maybe_mark_ecn(struct rte_mbuf *m, struct rte_ring *r)
     if (ecn == 0x01 || ecn == 0x02) {             /* ECT(1) or ECT(0) */
         ip->type_of_service |= 0x03;              /* set CE (11b)     */
         ip->hdr_checksum     = 0;
-        ip->hdr_checksum     = rte_ipv4_cksum(ip); 
+        ip->hdr_checksum     = rte_ipv4_cksum((const struct rte_ipv4_hdr *)ip); 
     }
 }
 
@@ -74,6 +74,7 @@ maybe_mark_ecn(struct rte_mbuf *m, struct rte_ring *r)
 
 
 static void
+__attribute__((unused))
 dump_queues(const SchedState *ss, const SchedConf *sc, uint64_t now_us)
 {
     /* Print timestamp first */
@@ -277,6 +278,7 @@ SchedDequeueInit(unsigned lcoreId)
 static inline uint16_t
 SchedRxClassifyAndUpdatePkt(struct rte_mbuf *mbuf, uint64_t rxRtsc)
 {
+  (void)rxRtsc;
   uint16_t qid;
 #define QID_CATCHALL  NUM_GBSQUEUES_MAX  // First queue in EBS set
 #define QID_DROP      0
@@ -308,7 +310,7 @@ SchedRxClassifyAndUpdatePkt(struct rte_mbuf *mbuf, uint64_t rxRtsc)
   // NOTE: The srcPort and dstPort are in same L4 offset location for UDP and TCP headers!! 
   typedef UdpHdr L4Hdr;
   L4Hdr *l4Hdr = get_udphdr_ptr(pkt, vlan);
-  uint16_t dstPort = rte_cpu_to_be_16(l4Hdr->dst_port);
+  //uint16_t dstPort = rte_cpu_to_be_16(l4Hdr->dst_port);
   uint16_t srcPort = rte_cpu_to_be_16(l4Hdr->src_port);
 
     
@@ -906,6 +908,7 @@ SchedDequeueThreadDCB_Q(unsigned lcoreId)
   uint32_t timeslotTsc = sc->timeslotTsc;
   uint16_t timeslotsPerSeq = sc->timeslotsPerSeq;
   int64_t overrideths = (int64_t) (timeslotTsc * timeslotsPerSeq / PATH_OVERRIDE_FACTOR);
+  int64_t creditths   = (int64_t) timeslotTsc * timeslotsPerSeq;
   
   bool hasRunLimit = (runConf.maxRunPkts!=0 || runConf.maxRunTimeslots!=0);  // Run time is constrained by # of packets or # of timeslots
   if (hasRunLimit)
@@ -926,7 +929,7 @@ SchedDequeueThreadDCB_Q(unsigned lcoreId)
       uint64_t rtscRxDeq=0;
       uint8_t  pktType = PKTTYPE_UNKNOWN;
       
-      struct rte_mbuf *mbuf;
+      struct rte_mbuf *mbuf = NULL;
 
       ss->timeslotsTotal = rtscCurr / timeslotTsc;                     // total number of timeslots processed (for metrics?)
       ss->schedSeqTotal  = ss->timeslotsTotal / timeslotsPerSeq;       // total number of sequences processed (for metrics?)
@@ -983,6 +986,8 @@ SchedDequeueThreadDCB_Q(unsigned lcoreId)
       PathConf *pc = &(sc->pathConf[sc->confId][gbsPathId]);
       PathState *ps = &(ss->gbsPath[sc->confId][gbsPathId]);
       
+      int64_t maxBundleCostTsc = (int64_t)(((bc->maxPktSize + ETHER_PHY_FRAME_OVERHEAD + TELEMETRY_DATA_LEN) * 8 * 1E6) / sc->linkSpeedBpMTsc);
+
       // AF DEBUG
       /*
       printf("t: %lu timeslot: %u Candidate Bundle: %u\n", rtscCurr,  ss->timeslotIdx, gbsBundleId);
@@ -1004,8 +1009,8 @@ SchedDequeueThreadDCB_Q(unsigned lcoreId)
 	  // The current slot is not empty: see if the target bundle can be scheduled
 	  // AF240927: Added here the new condition on path eligibility
 	  bool queuesAreEmpty = bundleQueuesAreEmpty(ss, bc);
-          if ((bs->bundleCredit.value < 0) ||
-              ((gbsPathId > 0) && (bs->bundleCredit.value < overrideths) && (ps->pathCredit.value < 0)) ||
+          if ((bs->bundleCredit.value - maxBundleCostTsc < -creditths) ||
+              ((gbsPathId > 0) && (bs->bundleCredit.value < overrideths) && (ps->pathCredit.value - maxBundleCostTsc < -creditths)) ||
 	      (queuesAreEmpty == true))
 	    {
 	      // AF241221: I added here the condition on the occupancy state of the bundle, for consistency with the simulation code
@@ -1114,9 +1119,12 @@ SchedDequeueThreadDCB_Q(unsigned lcoreId)
 	    }
 	}
 
+      // Recompute the max-packet cost for the finally selected bundle (it may have been reselected above)
+      maxBundleCostTsc = (int64_t)(((bc->maxPktSize + ETHER_PHY_FRAME_OVERHEAD + TELEMETRY_DATA_LEN) * 8 * 1E6) / sc->linkSpeedBpMTsc);
+
       // Check again if a servable bundle has been found, whether the original or the new one
-      if (((gbsBundleId > 0) && (bs->bundleCredit.value >= 0)) &&
-	  ((gbsPathId == 0) || (ps->pathCredit.value >= 0) || (bs->bundleCredit.value >= overrideths)))
+      if (((gbsBundleId > 0) && (bs->bundleCredit.value - maxBundleCostTsc >= -creditths)) &&
+	  ((gbsPathId == 0) || (ps->pathCredit.value - maxBundleCostTsc >= -creditths) || (bs->bundleCredit.value >= overrideths)))
 	{
 	  
 	  // DEBUG
@@ -1141,8 +1149,9 @@ SchedDequeueThreadDCB_Q(unsigned lcoreId)
 		  increaseQueueCredit(sc, qs, bc->numTimeslots, rtscCurr);
 		}
 	      
-	      // check if the queue can be served: it must have non-negative credits
-	      if ( (dominance == STREAM_TYPE_LAT_DOMINIATE) && (qs->queueCredit.value < 0) )
+	      // check if the queue can be served: transmitting its max-size packet must not push credits below -creditths
+	      int64_t maxQueueCostTsc = (int64_t)(((sc->streamCfg[sc->confId][gbsQueueId].pktsize + ETHER_PHY_FRAME_OVERHEAD + TELEMETRY_DATA_LEN) * 8 * 1E6) / sc->linkSpeedBpMTsc);
+	      if ( (dominance == STREAM_TYPE_LAT_DOMINIATE) && (qs->queueCredit.value - maxQueueCostTsc < -creditths) )
 		{
 		  // if not, check next queue in bundle
 		  continue;
@@ -1485,6 +1494,9 @@ SchedDequeueThreadDCB_Q(unsigned lcoreId)
 	  printf(" Switching PSS configuration!!! to %d\n", sc->confId);
 	  sc->newConfig = false;
 	}
+
+      // rtscRxDeq is only used by optional telemetry/TLV code paths; keep builds warning-free.
+      (void)rtscRxDeq;
     } // end while (!forceQuit)
 }
 
@@ -1762,7 +1774,7 @@ SchedThreadsDispatcher(void)
 
   if (nonce==false)
     {
-      timerPeriodTsc = timerPeriodSec * rte_get_timer_hz();
+      timerPeriodTsc = timerPeriodSec * rte_get_tsc_hz();
       nonce = true;
     }
 
